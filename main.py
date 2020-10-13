@@ -5,6 +5,7 @@ import torchvision.transforms as transforms
 from PIL import Image
 from model import Darknet53
 
+
 def pad_to_square(img, pad_value):
     c, h, w = img.shape
     dim_diff = np.abs(h - w)
@@ -16,6 +17,7 @@ def pad_to_square(img, pad_value):
     img = F.pad(img, pad, "constant", value=pad_value)
 
     return img, pad
+
 
 if __name__ == "__main__":
     dev = torch.device('cuda')
