@@ -153,15 +153,15 @@ class ResidualBlock(nn.Module):
     def __init__(self, channels_in):
         super(ResidualBlock, self).__init__()
         first_out_channels = channels_in // 2
-        self.modules = nn.ModuleList([
+        self.module_list = nn.ModuleList([
             ConvBlock(channels_in, first_out_channels, kernel_size=1),
-            ConvBlock(first_out_channels, first_out_channels * 2, kernel_size=1, padding=1)
+            ConvBlock(first_out_channels, first_out_channels * 2, kernel_size=3, padding=1)
         ])
 
     def forward(self, x):
         skip_connection = x
         layer_outputs = []
-        for i, module in enumerate(self.modules):
+        for i, module in enumerate(self.module_list):
             x = module(x)
             layer_outputs.append(x)
         x = x + skip_connection
@@ -200,7 +200,7 @@ class YOLOLayer(nn.Module):
         # Tensors for cuda support
         FloatTensor = torch.cuda.FloatTensor if x.is_cuda else torch.FloatTensor
 
-        self.img_dim = img_dim
+        #self.img_dim = img_dim
         num_samples = x.size(0)
         grid_size = x.size(2)
 
@@ -343,9 +343,32 @@ class FullNet(nn.Module):
                                      (373, 326)], num_classes, img_dim)
         self.conv1 = ConvBlock(512, 256, kernel_size=1)
         self.scale1 = Upsample(2)
-        # self.second_yolo_conv_blocks = nn.ModuleList([
-        #     
-        # ])
+        self.second_yolo_conv_blocks = nn.ModuleList([
+            ConvBlock(768, 256, kernel_size=1),
+            ConvBlock(256, 512, kernel_size=3, padding=1),
+            ConvBlock(512, 256, kernel_size=1),
+            ConvBlock(256, 512, kernel_size=3, padding=1),
+            ConvBlock(512, 256, kernel_size=1),
+            ConvBlock(256, 512, kernel_size=3, padding=1),
+            ConvBlock(512, 255, kernel_size=1, batch_norm=False, activation=False),
+        ])
+        self.second_yolo = YOLOLayer([(30, 61),
+                                     (62, 45),
+                                     (59, 119)], num_classes, img_dim)
+        self.conv2 = ConvBlock(256, 128, kernel_size=1)
+        self.scale2 = Upsample(2)
+        self.third_yolo_conv_blocks = nn.ModuleList([
+            ConvBlock(384, 128, kernel_size=1),
+            ConvBlock(128, 256, kernel_size=3, padding=1),
+            ConvBlock(256, 128, kernel_size=1),
+            ConvBlock(128, 256, kernel_size=3, padding=1),
+            ConvBlock(256, 128, kernel_size=1),
+            ConvBlock(128, 256, kernel_size=3, padding=1),
+            ConvBlock(256, 255, kernel_size=1, batch_norm=False, activation=False),
+        ])
+        self.third_yolo = YOLOLayer([(10, 13),
+                                     (16, 30),
+                                     (33, 23)], num_classes, img_dim)
 
     def forward(self, x):
         yolo_outputs = []
@@ -358,14 +381,40 @@ class FullNet(nn.Module):
         x, layer_loss = self.first_yolo(x)
         layer_outputs.append(x)
         yolo_outputs.append(x)
+        print(f"Yolo dim {x.size()}")
         route_output = layer_outputs[-4]
         x = torch.cat([route_output], 1)
+        print(f"First route dim {x.size()}")
         layer_outputs.append(x)
         x = self.conv1(x)
         layer_outputs.append(x)
         x = self.scale1(x)
         layer_outputs.append(x)
-        x = torch.cat([x, layer_outputs[61]])
+        x = torch.cat([x, layer_outputs[61]], 1)
+        print(f"Second route dim {x.size()}")
         layer_outputs.append(x)
-        x = Conv
-
+        for i, module in enumerate(self.second_yolo_conv_blocks):
+            x = module(x)
+            layer_outputs.append(x)
+        x, layer2_loss = self.second_yolo(x)
+        layer_outputs.append(x)
+        yolo_outputs.append(x)
+        print(f"Yolo 2 dim {x.size()}")
+        route_output = layer_outputs[-4]
+        x = torch.cat([route_output], 1)
+        print(f"Third route dim {x.size()}")
+        layer_outputs.append(x)
+        x = self.conv2(x)
+        layer_outputs.append(x)
+        x = self.scale2(x)
+        layer_outputs.append(x)
+        x = torch.cat([x, layer_outputs[36]], 1)
+        print(f"Fourth route dim {x.size()}")
+        layer_outputs.append(x)
+        for i, module in enumerate(self.third_yolo_conv_blocks):
+            x = module(x)
+            layer_outputs.append(x)
+        x, layer3_loss = self.third_yolo(x)
+        yolo_outputs.append(x)
+        layer_outputs.append(x)
+        return yolo_outputs

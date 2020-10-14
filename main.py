@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 import torchvision.transforms as transforms
 from PIL import Image
-from model import Darknet53
+from model import Darknet53, FullNet
 
 
 def pad_to_square(img, pad_value):
@@ -22,7 +22,8 @@ def pad_to_square(img, pad_value):
 if __name__ == "__main__":
     dev = torch.device('cuda')
     cpu = torch.device('cpu')
-    darknet = Darknet53()
+    #darknet = Darknet53()
+    yolo = FullNet(80)
     img = Image.open('dog.jpg')
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])])
@@ -40,16 +41,18 @@ if __name__ == "__main__":
     #p_img = torch.unsqueeze(p_img, 0)
     p_img = p_img#.to(dev)
     print('Img size 2: ', p_img.size())
-    modl = list(list(darknet.children())[0].children())[0]
+    yolo.eval()
+    results = yolo(p_img)
+    #modl = list(list(darknet.children())[0].children())[0]
     #print(f"Weight: {modl.weight.data[0, 0, 0, 0]}")
-    darknet.load_weights('darknet53_448.weights')
+    #darknet.load_weights('darknet53_448.weights')
     #print(f"Weight after: {modl.weight.data[0, 0, 0, 0]}")
     #darknet#.to(dev)
-    darknet.eval()
-    results = darknet(p_img)
-    data = results.data.numpy()
-    argmax_pred = np.argmax(data, 1)
-    max_pred = np.max(data, 1)
-    print('Results size', results.size())
-    print(f"Max index: {argmax_pred}, max_pred: {max_pred}")
+    #darknet.eval()
+    #results = darknet(p_img)
+    #data = results.data.numpy()
+    #argmax_pred = np.argmax(data, 1)
+    #max_pred = np.max(data, 1)
+    #print('Results size', results.size())
+    #print(f"Max index: {argmax_pred}, max_pred: {max_pred}")
 
