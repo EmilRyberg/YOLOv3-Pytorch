@@ -56,97 +56,38 @@ class Darknet53(nn.Module):
             num_features *= s
         return num_features
 
-    def load_weights(self, weights_path):
+    def load_weights(self, current_ptr, weights):
         """Parses and loads the weights stored in 'weights_path'"""
 
-        # Open the weights file
-        with open(weights_path, "rb") as f:
-            header = np.fromfile(f, dtype=np.int32, count=5)  # First five are header values
-            # self.header_info = header  # Needed to write header when saving weights
-            # self.seen = header[3]  # number of images seen during training
-            weights = np.fromfile(f, dtype=np.float32)  # The rest are weights
-            print('weights', weights.shape)
+        # # Open the weights file
+        # with open(weights_path, "rb") as f:
+        #     header = np.fromfile(f, dtype=np.int32, count=5)  # First five are header values
+        #     # self.header_info = header  # Needed to write header when saving weights
+        #     # self.seen = header[3]  # number of images seen during training
+        #     weights = np.fromfile(f, dtype=np.float32)  # The rest are weights
+        #     print('weights', weights.shape)
 
         # Establish cutoff for loading backbone weights
         cutoff = None
 
-        ptr = 0
+        ptr = current_ptr
         layers = 0
-        current_conv = None
-        current_bn = None
         for i, module in enumerate(self.module_list):
-            if i == cutoff:
-                break
-            if type(module) == ResidualBlock:
-                rb_conv = None
-                rb_bn = None
-                for inner_module in module.sequential.modules():
-                    if type(inner_module) != nn.Conv2d and type(inner_module) != nn.BatchNorm2d:
-                        continue
-                    if type(inner_module) == nn.Conv2d:
-                        rb_conv = inner_module
-                        layers += 1
-                        continue
-                    if type(inner_module) == nn.BatchNorm2d:
-                        rb_bn = inner_module
-                    ptr = load_weights_for_module(rb_conv, rb_bn, ptr, weights)
-            else:
-                if type(module) != nn.Conv2d and type(module) != nn.BatchNorm2d:
-                    continue
-                if type(module) == nn.Conv2d:
-                    current_conv = module
-                    layers += 1
-                    continue
-                if type(module) == nn.BatchNorm2d:
-                    current_bn = module
-                ptr = load_weights_for_module(current_conv, current_bn, ptr, weights)
-                current_conv = None
-                current_bn = None
-
+           ptr = module.load_weights(ptr, weights)
+        return ptr
         # ptr = load_weights_for_module(self.linear, ptr, weights)
-        layers += 1
-        linear_module = self.linear
-        num_b = linear_module.bias.numel()
-        l_b = torch.from_numpy(weights[ptr: ptr + num_b]).view_as(linear_module.bias)
-        linear_module.bias.detach().copy_(l_b)
-        ptr += num_b
-        num_w = linear_module.weight.numel()
-        l_w = torch.from_numpy(weights[ptr: ptr + num_w]).view_as(linear_module.weight)
-        linear_module.weight.detach().copy_(l_w)
-        ptr += num_w
-        print(f"Loaded {layers} layers")
-        print(f"PTR: {ptr}, weights: {weights.shape}")
-
-
-def load_weights_for_module(current_conv, current_bn, ptr, weights):
-    l_ptr = ptr
-    # Load BN bias, weights, running mean and running variance
-    bn_layer = current_bn
-    num_b = bn_layer.bias.numel()  # Number of biases
-    # Bias
-    bn_b = torch.from_numpy(weights[l_ptr: l_ptr + num_b]).view_as(bn_layer.bias)
-    bn_layer.bias.detach().copy_(bn_b)
-    l_ptr += num_b
-    # Weight
-    bn_w = torch.from_numpy(weights[l_ptr: l_ptr + num_b]).view_as(bn_layer.weight)
-    bn_layer.weight.detach().copy_(bn_w)
-    l_ptr += num_b
-    # Running Mean
-    bn_rm = torch.from_numpy(weights[l_ptr: l_ptr + num_b]).view_as(bn_layer.running_mean)
-    bn_layer.running_mean.detach().copy_(bn_rm)
-    l_ptr += num_b
-    # Running Var
-    bn_rv = torch.from_numpy(weights[l_ptr: l_ptr + num_b]).view_as(bn_layer.running_var)
-    bn_layer.running_var.detach().copy_(bn_rv)
-    l_ptr += num_b
-
-    # Load conv
-    conv_layer = current_conv
-    num_w = conv_layer.weight.numel()
-    conv_w = torch.from_numpy(weights[l_ptr: l_ptr + num_w]).view_as(conv_layer.weight)
-    conv_layer.weight.detach().copy_(conv_w)
-    l_ptr += num_w
-    return l_ptr
+        # layers += 1
+        # linear_module = self.linear
+        # num_b = linear_module.bias.numel()
+        # l_b = torch.from_numpy(weights[ptr: ptr + num_b]).view_as(linear_module.bias)
+        # linear_module.bias.detach().copy_(l_b)
+        # ptr += num_b
+        # num_w = linear_module.weight.numel()
+        # l_w = torch.from_numpy(weights[ptr: ptr + num_w]).view_as(linear_module.weight)
+        # linear_module.weight.detach().copy_(l_w)
+        # ptr += num_w
+        # print(f"Loaded {layers} layers")
+        # print(f"PTR: {ptr}, weights: {weights.shape}")
 
 
 class ResidualBlock(nn.Module):
@@ -167,6 +108,12 @@ class ResidualBlock(nn.Module):
         x = x + skip_connection
         layer_outputs.append(x)
         return x, layer_outputs
+
+    def load_weights(self, current_ptr, weights):
+        ptr = current_ptr
+        for i, module in enumerate(self.module_list):
+            ptr = module.load_weights(ptr, weights)
+        return ptr
 
 
 class YOLOLayer(nn.Module):
@@ -203,12 +150,13 @@ class YOLOLayer(nn.Module):
         #self.img_dim = img_dim
         num_samples = x.size(0)
         grid_size = x.size(2)
-
+        #print(f"YOLO initial: {x.shape}")
         prediction = (
             x.view(num_samples, self.num_anchors, self.num_classes + 5, grid_size, grid_size)
                 .permute(0, 1, 3, 4, 2)
                 .contiguous()
         )
+        #print(f"After: {prediction.shape}")
 
         # Get outputs
         x = torch.sigmoid(prediction[..., 0])  # Center x
@@ -308,21 +256,61 @@ class Upsample(nn.Module):
 class ConvBlock(nn.Module):
     def __init__(self, channels_in, channels_out, kernel_size, padding=0, batch_norm=True, activation=True, stride=1):
         super(ConvBlock, self).__init__()
-        self.conv = nn.ModuleList([
-            nn.Conv2d(in_channels=channels_in,
+        self.conv = nn.Conv2d(in_channels=channels_in,
                       out_channels=channels_out,
-                      kernel_size=kernel_size, bias=not batch_norm, padding=padding, stride=stride)]
-        )
-        if batch_norm:
-            self.conv.append(nn.BatchNorm2d(channels_out, momentum=0.9, eps=1e-5))
+                      kernel_size=kernel_size, bias=not batch_norm, padding=padding, stride=stride)
+        self.has_batch_norm = False
+        self.batch_norm = None
 
-        if activation:
-            self.conv.append(nn.LeakyReLU(0.1))
+        if batch_norm:
+            self.batch_norm = nn.BatchNorm2d(channels_out, momentum=0.9, eps=1e-5)
+            self.has_batch_norm = True
+
+        self.activation = activation
 
     def forward(self, x):
-        for i, module in enumerate(self.conv):
-            x = module(x)
+        x = self.conv(x)
+        if self.has_batch_norm:
+            x = self.batch_norm(x)
+        if self.activation:
+            x = nn.LeakyReLU(0.1)(x)
         return x
+
+    def load_weights(self, current_ptr, weights):
+        ptr = current_ptr
+        conv_layer = self.conv
+        if self.has_batch_norm:
+            # Load BN bias, weights, running mean and running variance
+            bn_layer = self.batch_norm
+            num_b = bn_layer.bias.numel()  # Number of biases
+            # Bias
+            bn_b = torch.from_numpy(weights[ptr: ptr + num_b]).view_as(bn_layer.bias)
+            bn_layer.bias.data.copy_(bn_b)
+            ptr += num_b
+            # Weight
+            bn_w = torch.from_numpy(weights[ptr: ptr + num_b]).view_as(bn_layer.weight)
+            bn_layer.weight.data.copy_(bn_w)
+            ptr += num_b
+            # Running Mean
+            bn_rm = torch.from_numpy(weights[ptr: ptr + num_b]).view_as(bn_layer.running_mean)
+            bn_layer.running_mean.data.copy_(bn_rm)
+            ptr += num_b
+            # Running Var
+            bn_rv = torch.from_numpy(weights[ptr: ptr + num_b]).view_as(bn_layer.running_var)
+            bn_layer.running_var.data.copy_(bn_rv)
+            ptr += num_b
+        else:
+            # Load conv. bias
+            num_b = conv_layer.bias.numel()
+            conv_b = torch.from_numpy(weights[ptr: ptr + num_b]).view_as(conv_layer.bias)
+            conv_layer.bias.data.copy_(conv_b)
+            ptr += num_b
+        # Load conv. weights
+        num_w = conv_layer.weight.numel()
+        conv_w = torch.from_numpy(weights[ptr: ptr + num_w]).view_as(conv_layer.weight)
+        conv_layer.weight.data.copy_(conv_w)
+        ptr += num_w
+        return ptr
 
 
 class FullNet(nn.Module):
@@ -416,5 +404,26 @@ class FullNet(nn.Module):
             layer_outputs.append(x)
         x, layer3_loss = self.third_yolo(x)
         yolo_outputs.append(x)
+        #print(f"Yolo output: {x.shape}")
         layer_outputs.append(x)
-        return yolo_outputs
+        #print(f"YOLO before: {yolo_outputs}")
+        return to_cpu(torch.cat(yolo_outputs, 1))
+
+    def load_weights(self, weights_path):
+        ptr = 0
+        with open(weights_path, "rb") as f:
+            header = np.fromfile(f, dtype=np.int32, count=5)  # First five are header values
+            self.header_info = header  # Needed to write header when saving weights
+            self.seen = header[3]  # number of images seen during training
+            weights = np.fromfile(f, dtype=np.float32)  # The rest are weights
+
+        ptr = self.darknet.load_weights(ptr, weights)
+        for i, module in enumerate(self.first_path):
+            ptr = module.load_weights(ptr, weights)
+        ptr = self.conv1.load_weights(ptr, weights)
+        for i, module in enumerate(self.second_yolo_conv_blocks):
+            ptr = module.load_weights(ptr, weights)
+        ptr = self.conv2.load_weights(ptr, weights)
+        for i, module in enumerate(self.third_yolo_conv_blocks):
+            ptr = module.load_weights(ptr, weights)
+        print(f"Loaded weights {ptr}/{weights.shape[0]}")
