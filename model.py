@@ -118,7 +118,6 @@ class YOLOTinyBackbone(nn.Module):
         layer_outputs = []
         for i, module in enumerate(self.module_list):
             x = module(x)
-            print(f"BL{i}: {x.shape}")
             layer_outputs.append(x)
         return x, layer_outputs
 
