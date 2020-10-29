@@ -59,35 +59,13 @@ class Darknet53(nn.Module):
     def load_weights(self, current_ptr, weights):
         """Parses and loads the weights stored in 'weights_path'"""
 
-        # # Open the weights file
-        # with open(weights_path, "rb") as f:
-        #     header = np.fromfile(f, dtype=np.int32, count=5)  # First five are header values
-        #     # self.header_info = header  # Needed to write header when saving weights
-        #     # self.seen = header[3]  # number of images seen during training
-        #     weights = np.fromfile(f, dtype=np.float32)  # The rest are weights
-        #     print('weights', weights.shape)
-
         # Establish cutoff for loading backbone weights
         cutoff = None
 
         ptr = current_ptr
-        layers = 0
         for i, module in enumerate(self.module_list):
            ptr = module.load_weights(ptr, weights)
         return ptr
-        # ptr = load_weights_for_module(self.linear, ptr, weights)
-        # layers += 1
-        # linear_module = self.linear
-        # num_b = linear_module.bias.numel()
-        # l_b = torch.from_numpy(weights[ptr: ptr + num_b]).view_as(linear_module.bias)
-        # linear_module.bias.detach().copy_(l_b)
-        # ptr += num_b
-        # num_w = linear_module.weight.numel()
-        # l_w = torch.from_numpy(weights[ptr: ptr + num_w]).view_as(linear_module.weight)
-        # linear_module.weight.detach().copy_(l_w)
-        # ptr += num_w
-        # print(f"Loaded {layers} layers")
-        # print(f"PTR: {ptr}, weights: {weights.shape}")
 
 
 class ResidualBlock(nn.Module):
@@ -114,6 +92,110 @@ class ResidualBlock(nn.Module):
         for i, module in enumerate(self.module_list):
             ptr = module.load_weights(ptr, weights)
         return ptr
+
+
+class YOLOTinyBackbone(nn.Module):
+    def __init__(self):
+        super(YOLOTinyBackbone, self).__init__()
+        self.module_list = nn.ModuleList([
+            ConvBlock(3, 16, 3, padding=1),
+            nn.MaxPool2d(2, 2),
+            ConvBlock(16, 32, 3, padding=1),
+            nn.MaxPool2d(2, 2),
+            ConvBlock(32, 64, 3, padding=1),
+            nn.MaxPool2d(2, 2),
+            ConvBlock(64, 128, 3, padding=1),
+            nn.MaxPool2d(2, 2),
+            ConvBlock(128, 256, 3, padding=1),
+            nn.MaxPool2d(2, 2),
+            ConvBlock(256, 512, 3, padding=1),
+            nn.ZeroPad2d((0, 1, 0, 1)),
+            nn.MaxPool2d(2, 1),
+            ConvBlock(512, 1024, 3, padding=1)]
+        )
+
+    def forward(self, x):
+        layer_outputs = []
+        for i, module in enumerate(self.module_list):
+            x = module(x)
+            print(f"BL{i}: {x.shape}")
+            layer_outputs.append(x)
+        return x, layer_outputs
+
+    def load_weights(self, current_ptr, weights):
+        ptr = current_ptr
+        for i, module in enumerate(self.module_list):
+            if type(module) == nn.MaxPool2d or type(module) == nn.ZeroPad2d:
+                continue
+            ptr = module.load_weights(ptr, weights)
+        return ptr
+
+
+class YOLOv3Tiny(nn.Module):
+    def __init__(self, num_classes=80, img_size=416):
+        super(YOLOv3Tiny, self).__init__()
+        self.img_size = img_size
+        self.backbone = YOLOTinyBackbone()
+        self.cnn_list = nn.ModuleList([
+            ConvBlock(1024, 256, 1),
+            ConvBlock(256, 512, 3, padding=1),
+            ConvBlock(512, (num_classes+5)*3, 1, batch_norm=False, activation=False)
+        ])
+        self.first_yolo = YOLOLayer([(81, 82),
+                                     (135, 169),
+                                     (344, 319)], num_classes, img_size)
+        self.second_yolo_conv = ConvBlock(256, 128, kernel_size=1)
+        self.upsample = Upsample(2)
+        self.second_yolo_conv2 = ConvBlock(384, 256, 3, padding=1)
+        self.second_yolo_conv3 = ConvBlock(256, (num_classes+5)*3, 1, batch_norm=False, activation=False)
+        self.second_yolo = YOLOLayer([(10, 14),
+                                     (23, 27),
+                                     (37, 58)], num_classes, img_size)
+
+    def forward(self, x):
+        layer_outputs = []
+        yolo_outputs = []
+        x, backbone_outputs = self.backbone(x)
+        layer_outputs.extend(backbone_outputs)
+        for module in self.cnn_list:
+            x = module(x)
+            layer_outputs.append(x)
+        x, layer_loss = self.first_yolo(x)
+        layer_outputs.append(x)
+        yolo_outputs.append(x)
+        route_output = layer_outputs[-4]
+        x = torch.cat([route_output], 1)
+        layer_outputs.append(x)
+        x = self.second_yolo_conv(x)
+        layer_outputs.append(x)
+        x = self.upsample(x)
+        layer_outputs.append(x)
+        x = torch.cat([x, layer_outputs[8]], 1)
+        layer_outputs.append(x)
+        x = self.second_yolo_conv2(x)
+        layer_outputs.append(x)
+        x = self.second_yolo_conv3(x)
+        layer_outputs.append(x)
+        x, layer2_loss = self.second_yolo(x)
+        layer_outputs.append(x)
+        yolo_outputs.append(x)
+        return to_cpu(torch.cat(yolo_outputs, 1))
+
+    def load_weights(self, weights_path):
+        ptr = 0
+        with open(weights_path, "rb") as f:
+            header = np.fromfile(f, dtype=np.int32, count=5)  # First five are header values
+            self.header_info = header  # Needed to write header when saving weights
+            self.seen = header[3]  # number of images seen during training
+            weights = np.fromfile(f, dtype=np.float32)  # The rest are weights
+
+        ptr = self.backbone.load_weights(ptr, weights)
+        for i, module in enumerate(self.cnn_list):
+            ptr = module.load_weights(ptr, weights)
+        ptr = self.second_yolo_conv.load_weights(ptr, weights)
+        ptr = self.second_yolo_conv2.load_weights(ptr, weights)
+        ptr = self.second_yolo_conv3.load_weights(ptr, weights)
+        print(f"Loaded weights {ptr}/{weights.shape[0]}")
 
 
 class YOLOLayer(nn.Module):
@@ -313,9 +395,9 @@ class ConvBlock(nn.Module):
         return ptr
 
 
-class FullNet(nn.Module):
+class YOLOv3(nn.Module):
     def __init__(self, num_classes, img_dim=416):
-        super(FullNet, self).__init__()
+        super(YOLOv3, self).__init__()
         self.darknet = Darknet53()
         self.first_path = nn.ModuleList([
             ConvBlock(1024, 512, kernel_size=1),

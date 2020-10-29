@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 import torchvision.transforms as transforms
 from PIL import Image
-from model import Darknet53, FullNet
+from model import Darknet53, YOLOv3, YOLOv3Tiny
 from utils import non_max_suppression, rescale_boxes, load_classes
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -28,30 +28,31 @@ if __name__ == "__main__":
     dev = torch.device('cuda')
     cpu = torch.device('cpu')
     #darknet = Darknet53()
-    yolo = FullNet(80)
+    #yolo = FullNet(80)
+    yolo = YOLOv3Tiny(80)
     img_path = "dog.jpg"
     img = Image.open(img_path)
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])])
-    transform2 = transforms.Compose([
-        transforms.CenterCrop(448),
-        transforms.ToTensor()
-    ])
+    #transform2 = transforms.Compose([
+    #    transforms.CenterCrop(448),
+    #    transforms.ToTensor()
+    #])
     p_img = transforms.ToTensor()(img)
     p_img, _ = pad_to_square(p_img, 0)
-    p_img = F.interpolate(p_img.unsqueeze(0), size=448, mode="nearest").squeeze(0)
+    p_img = F.interpolate(p_img.unsqueeze(0), size=416, mode="nearest").squeeze(0)
     p_img = p_img.unsqueeze(0)
-    print(p_img.max())
-    print(p_img.min())
+    #print(p_img.max())
+    #print(p_img.min())
     print('Img size: ', p_img.size())
     #p_img = torch.unsqueeze(p_img, 0)
     p_img = p_img.to(dev)
     print('Img size 2: ', p_img.size())
-    yolo.load_weights("yolov3.weights")
+    yolo.load_weights("yolov3-tiny.weights")
     yolo.eval()
     yolo = yolo.to(dev)
     results = yolo(p_img)
-    detections = non_max_suppression(results)
+    detections = non_max_suppression(results, 0.1)
     cmap = plt.get_cmap("tab20b")
     colors = [cmap(i) for i in np.linspace(0, 1, 20)]
     classes = load_classes("data/coco.names")

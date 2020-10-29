@@ -1,3 +1,5 @@
+### Code borrowed from https://github.com/eriklindernoren/PyTorch-YOLOv3
+
 import math
 import time
 import tqdm
@@ -264,7 +266,6 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
 
 
 def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
-
     ByteTensor = torch.cuda.ByteTensor if pred_boxes.is_cuda else torch.ByteTensor
     FloatTensor = torch.cuda.FloatTensor if pred_boxes.is_cuda else torch.FloatTensor
 
