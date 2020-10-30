@@ -7,10 +7,7 @@ from PIL import Image
 from model import Darknet53, YOLOv3, YOLOv3Tiny
 from utils import non_max_suppression, rescale_boxes, load_classes
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.ticker import NullLocator
 import random
-import io
 
 
 def pad_to_square(img, pad_value):
@@ -26,23 +23,8 @@ def pad_to_square(img, pad_value):
     return img, pad
 
 
-# define a function which returns an image as numpy array from figure
-def get_img_from_fig(fig, dpi=180):
-    buf = io.BytesIO()
-    #fig.savefig(buf, format="png", dpi=dpi)
-    plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.0)
-    buf.seek(0)
-    img_arr = np.frombuffer(buf.getvalue(), dtype=np.uint8)
-    buf.close()
-    img = cv.imdecode(img_arr, 1)
-    #img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-
-    return img
-
-
 def plot_detections(det, img):
     # Rescale boxes to original image
-    #img = np.array(Image.open(path))
     img_cp = img.copy()
     cmap = plt.get_cmap("tab20b")
     colors = [cmap(i) for i in np.linspace(0, 1, 20)]
@@ -54,9 +36,6 @@ def plot_detections(det, img):
     unique_labels = detections[:, -1].cpu().unique()
     n_cls_preds = len(unique_labels)
     bbox_colors = random.sample(colors, n_cls_preds)
-    # plt.figure()
-    # fig, ax = plt.subplots(1)
-    # ax.imshow(img)
 
     if det is not None:
         for x1, y1, x2, y2, conf, cls_conf, cls_pred in detections:
@@ -67,35 +46,8 @@ def plot_detections(det, img):
 
             color = bbox_colors[int(np.where(unique_labels == int(cls_pred))[0])]
             # Create a Rectangle patch
-            #bbox = patches.Rectangle((x1, y1), box_w, box_h, linewidth=2, edgecolor=color, facecolor="none")
             cv.rectangle(img_cp, (x1, y1), (x2, y2), (255, 0, 0), 2)
             cv.putText(img_cp, classes[int(cls_pred)], (x1 + 20, y1 + 20), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-            # Add the bbox to the plot
-            #ax.add_patch(bbox)
-            # Add label
-            #plt.text(
-            #    x1,
-            #    y1,
-            #    s=classes[int(cls_pred)],
-            #    color="white",
-            #    verticalalignment="top",
-            #    bbox={"color": color, "pad": 0},
-            #)
-
-    # Save generated image with detections
-    # plt.axis("off")
-    # plt.gca().xaxis.set_major_locator(NullLocator())
-    # plt.gca().yaxis.set_major_locator(NullLocator())
-    # buf = io.BytesIO()
-    #fig.savefig(buf, format="png", dpi=dpi)
-    # plt.savefig(buf, bbox_inches="tight", pad_inches=0.0)
-    # buf.seek(0)
-    # img_arr = np.frombuffer(buf.getvalue(), dtype=np.uint8)
-    # buf.close()
-    # img = cv.imdecode(img_arr, 1)
-    # #img = None
-    # #plt.savefig(f"out.png", bbox_inches="tight", pad_inches=0.0)
-    # plt.close()
     return img_cp
 
 
