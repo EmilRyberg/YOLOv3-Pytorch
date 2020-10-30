@@ -53,7 +53,7 @@ def plot_detections(det, img):
     detections = rescale_boxes(det, 416, img.shape[:2])
     unique_labels = detections[:, -1].cpu().unique()
     n_cls_preds = len(unique_labels)
-    # bbox_colors = random.sample(colors, n_cls_preds)
+    bbox_colors = random.sample(colors, n_cls_preds)
     # plt.figure()
     # fig, ax = plt.subplots(1)
     # ax.imshow(img)
