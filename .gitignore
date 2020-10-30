@@ -1,0 +1,6 @@
+dataset/**/*
+*.weights
+
+.idea/
+
+__pycache__/
