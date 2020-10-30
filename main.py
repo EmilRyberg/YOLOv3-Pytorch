@@ -126,7 +126,7 @@ if __name__ == "__main__":
         results = yolo(p_img)
         detections = non_max_suppression(results, 0.3)
 
-        img_s = plot_detections(detections[0], img)
+        img_s = plot_detections(detections[0], frame)
         #break
         if img_s is None:
             img_s = frame
