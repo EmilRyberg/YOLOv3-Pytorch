@@ -4,7 +4,7 @@ import numpy as np
 import torchvision.transforms as transforms
 import cv2 as cv
 from PIL import Image
-from model import Darknet53, YOLOv3, YOLOv3Tiny
+from model import YOLOv3, YOLOv3Tiny
 from utils import non_max_suppression, rescale_boxes, load_classes
 import matplotlib.pyplot as plt
 import random
@@ -28,7 +28,7 @@ def plot_detections(det, img):
     img_cp = img.copy()
     cmap = plt.get_cmap("tab20b")
     colors = [cmap(i) for i in np.linspace(0, 1, 20)]
-    classes = load_classes("data/coco.names")
+    classes = load_classes("data/custom.names")
     #print(det)
     if det is None:
         return None
@@ -55,9 +55,9 @@ if __name__ == "__main__":
     dev = torch.device('cuda')
     cpu = torch.device('cpu')
     #darknet = Darknet53()
-    #yolo = FullNet(80)
-    yolo = YOLOv3Tiny(80)
-    yolo.load_weights("yolov3-tiny.weights")
+    #yolo = YOLOv3(80)
+    yolo = YOLOv3Tiny(11)
+    yolo.load_weights("custom_yolov3-tiny.weights")
     yolo.eval()
     yolo = yolo.to(dev)
     img_path = "dog.jpg"
